@@ -105,8 +105,21 @@ const FLASHCARDS = [
 
 // --- GEMINI API INTEGRAATIO ---
 const callGeminiAPI = async (prompt: string, isJson: boolean = false) => {
-  const apiKey = "AIzaSyClAoECSG5E2HVpQphA9fN_v-vZTSadF5s"; 
+  let apiKey = "";
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    }
+  } catch (e) {
+    // Ohitetaan virheet esikatseluympäristöissä
+  }
   
+  if (!apiKey) {
+    throw new Error("API-avainta ei löydy ympäristömuuttujista. Lisää VITE_GEMINI_API_KEY Netlifyn tai StackBlitzin asetuksiin.");
+  }
+
   const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest"];
   
   const payload: any = {
