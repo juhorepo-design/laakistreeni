@@ -44,12 +44,13 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 3) => {
     throw new Error("API-avainta ei löydy Netlifyn asetuksista.");
   }
 
-  // Kokeillaan näitä malleja järjestyksessä
-  const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash-latest'];
-  let lastError = "";
+  // Kokeillaan useita malleja. Jos yksi on "Limit 0", siirrytään heti seuraavaan.
+  const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-2.0-flash'];
+  let lastErrorMessage = "";
 
   for (const model of modelsToTry) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    // Käytetään v1-versiota, joka on stabiilein
+    const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
     
     try {
       const response = await fetch(url, {
@@ -61,13 +62,12 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 3) => {
               text: isJson ? `${prompt} Vastaa PELKÄSTÄÄN puhtaalla JSON-taulukolla.` : prompt 
             }] 
           }]
-          // Ei generationConfigia, jotta vältetään Error 400
         })
       });
 
-      // Jos mallia ei löydy (404), kokeillaan listan seuraavaa
-      if (response.status === 404) {
-        lastError = `Mallia ${model} ei löytynyt.`;
+      // Jos mallia ei löydy (404) TAI kiintiö on 0 (429), kokeillaan listan seuraavaa
+      if (response.status === 404 || response.status === 429) {
+        lastErrorMessage = `Malli ${model} antoi virheen ${response.status}.`;
         continue; 
       }
 
@@ -77,7 +77,7 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 3) => {
       }
 
       const data = await response.json();
-      let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       
       if (!text) throw new Error("Tekoäly palautti tyhjän vastauksen.");
 
@@ -88,8 +88,8 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 3) => {
       return text;
 
     } catch (err: any) {
-      // Jos virhe ei ollut 404, se voi olla ruuhka -> yritetään uudelleen
-      if (err.message.includes("404")) continue;
+      // Jos virhe liittyy kiintiöön tai puuttuvaan malliin, jatketaan listassa eteenpäin
+      if (err.message.includes("429") || err.message.includes("404")) continue;
       
       if (retries > 0) {
         await new Promise(r => setTimeout(r, 2000));
@@ -99,7 +99,7 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 3) => {
     }
   }
   
-  throw new Error(`Mikään kokeilluista malleista ei toiminut. Viimeisin virhe: ${lastError}`);
+  throw new Error(`Kaikki tekoälymallit ovat tällä hetkellä varattuja tai rajoitettuja. Viimeisin viesti: ${lastErrorMessage}`);
 };
 
 // --- KOMPONENTIT ---
