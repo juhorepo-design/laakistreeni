@@ -37,8 +37,8 @@ const db = getFirestore(app);
 
 // --- GEMINI API APUFUNKTIO ---
 const callGeminiAPI = async (prompt, isJson = false, retries = 3) => {
-  const apiKey = 'AIzaSyClAoECSG5E2HVpQphA9fN_v-vZTSadF5s';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
   for (let i = 0; i < retries; i++) {
     try {
