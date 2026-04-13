@@ -44,8 +44,8 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
     throw new Error("API-avainta ei löydy Netlifyn asetuksista.");
   }
 
-  // Vuonna 2026 käytämme Gemini 3 Flash -mallia ja stabiilia v1-versiota
-  const model = 'gemini-3-flash'; 
+  // Käytetään varmaa v1-versiota ja perusmallia ilman turhia krumeluureja
+  const model = 'gemini-1.5-flash'; 
   const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
 
   for (let i = 0; i < retries; i++) {
@@ -54,17 +54,15 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: isJson ? { 
-            // Varmistetaan oikea kirjoitusasu vuoden 2026 standardeilla
-            response_mime_type: 'application/json' 
-          } : {}
+          contents: [{ 
+            parts: [{ 
+              // Jos haluamme JSONia, lisätään ohje suoraan tekstin loppuun
+              text: isJson ? `${prompt} Vastaa PELKÄSTÄÄN puhtaalla JSON-taulukolla, ei muuta tekstiä.` : prompt 
+            }] 
+          }]
+          // generationConfig poistettu, jotta vältetään Error 400
         })
       });
-
-      if (response.status === 404) {
-        throw new Error(`Mallia '${model}' ei löytynyt. Yritä vaihtaa mallin nimeksi 'gemini-2.0-flash' koodissa.`);
-      }
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -74,9 +72,17 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
       const data = await response.json();
       let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       
-      if (isJson && text) {
-        text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-        return JSON.parse(text);
+      if (!text) throw new Error("Tekoäly palautti tyhjän vastauksen.");
+
+      if (isJson) {
+        // Poistetaan mahdolliset ```json -merkit, jos tekoäly lisäsi ne
+        const cleanedText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        try {
+          return JSON.parse(cleanedText);
+        } catch (parseError) {
+          console.error("JSON-jäsennys epäonnistui:", cleanedText);
+          throw new Error("Tekoälyn vastaus ei ollut kelvollista JSON-muotoa.");
+        }
       }
       return text;
     } catch (err: any) {
