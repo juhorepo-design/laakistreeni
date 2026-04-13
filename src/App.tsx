@@ -40,14 +40,13 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
   // @ts-ignore
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   
-  // Diagnostiikka: Jos avain puuttuu kokonaan
   if (!apiKey || apiKey === "undefined") {
-    throw new Error("API-avainta ei löydy Netlifyn asetuksista (VITE_GEMINI_API_KEY on tyhjä).");
+    throw new Error("API-avainta ei löydy Netlifyn asetuksista.");
   }
 
-  // Päivitetty mallinimi ja osoite
+  // Käytetään v1beta-versiota ja uusinta vakaata mallia
   const model = 'gemini-1.5-flash-latest'; 
-  const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   for (let i = 0; i < retries; i++) {
     try {
@@ -56,19 +55,10 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: isJson ? { responseMimeType: 'application/json' } : {}
+          // TÄRKEÄ KORJAUS: response_mime_type (alaviivalla)
+          generationConfig: isJson ? { response_mime_type: 'application/json' } : {}
         })
       });
-
-      if (response.status === 404) {
-        throw new Error(`Mallia '${model}' ei löytynyt (404). Kokeillaan toista nimeä...`);
-      }
-
-      if (response.status === 503 || response.status === 429) {
-        const wait = Math.pow(2, i) * 1000;
-        await new Promise(r => setTimeout(r, wait));
-        continue;
-      }
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -79,12 +69,16 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
       let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       
       if (isJson && text) {
+        // Puhdistetaan mahdolliset markdown-merkit koodin ympäriltä
         text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
         return JSON.parse(text);
       }
       return text;
     } catch (err: any) {
       if (i === retries - 1) throw err;
+      // Odotetaan hetki ennen uutta yritystä (exponential backoff)
+      const wait = Math.pow(2, i) * 1000;
+      await new Promise(r => setTimeout(r, wait));
     }
   }
 };
