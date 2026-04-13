@@ -39,7 +39,15 @@ const db = getFirestore(app);
 const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
   // @ts-ignore
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  
+  // Diagnostiikka: Jos avain puuttuu kokonaan
+  if (!apiKey || apiKey === "undefined") {
+    throw new Error("API-avainta ei löydy Netlifyn asetuksista (VITE_GEMINI_API_KEY on tyhjä).");
+  }
+
+  // Päivitetty mallinimi ja osoite
+  const model = 'gemini-1.5-flash-latest'; 
+  const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
 
   for (let i = 0; i < retries; i++) {
     try {
@@ -52,13 +60,20 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
         })
       });
 
+      if (response.status === 404) {
+        throw new Error(`Mallia '${model}' ei löytynyt (404). Kokeillaan toista nimeä...`);
+      }
+
       if (response.status === 503 || response.status === 429) {
         const wait = Math.pow(2, i) * 1000;
         await new Promise(r => setTimeout(r, wait));
         continue;
       }
 
-      if (!response.ok) throw new Error(`Palvelin vastasi koodilla: ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`API-virhe ${response.status}: ${errorData.error?.message || 'Tuntematon virhe'}`);
+      }
 
       const data = await response.json();
       let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
