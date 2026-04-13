@@ -44,8 +44,8 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
     throw new Error("API-avainta ei löydy Netlifyn asetuksista.");
   }
 
-  // Käytetään varmaa v1-versiota ja perusmallia ilman turhia krumeluureja
-  const model = 'gemini-1.5-flash'; 
+  // Käytetään Gemini 3 Flashia, jonka palvelin aiemmin hyväksyi
+  const model = 'gemini-3-flash'; 
   const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
 
   for (let i = 0; i < retries; i++) {
@@ -56,11 +56,11 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
         body: JSON.stringify({
           contents: [{ 
             parts: [{ 
-              // Jos haluamme JSONia, lisätään ohje suoraan tekstin loppuun
-              text: isJson ? `${prompt} Vastaa PELKÄSTÄÄN puhtaalla JSON-taulukolla, ei muuta tekstiä.` : prompt 
+              // Ohjataan tekoälyä suoraan tekstissä, jotta vältetään tekniset asetukset (generationConfig)
+              text: isJson ? `${prompt} Vastaa PELKÄSTÄÄN puhtaalla JSON-taulukolla ilman markdown-merkintöjä.` : prompt 
             }] 
           }]
-          // generationConfig poistettu, jotta vältetään Error 400
+          // Ei generationConfigia -> Ei Error 400 -virhettä!
         })
       });
 
@@ -75,18 +75,19 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
       if (!text) throw new Error("Tekoäly palautti tyhjän vastauksen.");
 
       if (isJson) {
-        // Poistetaan mahdolliset ```json -merkit, jos tekoäly lisäsi ne
+        // Puhdistetaan vastaus varmuuden vuoksi
         const cleanedText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
         try {
           return JSON.parse(cleanedText);
         } catch (parseError) {
-          console.error("JSON-jäsennys epäonnistui:", cleanedText);
-          throw new Error("Tekoälyn vastaus ei ollut kelvollista JSON-muotoa.");
+          console.error("JSON-virhe:", cleanedText);
+          throw new Error("Vastaus ei ollut kelvollista JSON-muotoa.");
         }
       }
       return text;
     } catch (err: any) {
       if (i === retries - 1) throw err;
+      // Odotetaan hetki ennen uutta yritystä (Exponential backoff)
       const wait = Math.pow(2, i) * 1000;
       await new Promise(r => setTimeout(r, wait));
     }
