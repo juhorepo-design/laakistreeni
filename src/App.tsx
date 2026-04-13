@@ -253,7 +253,7 @@ export default function App() {
     try {
       const newQs = await callGeminiAPI(prompt, true);
       for (const q of newQs) { await addDoc(collection(db, 'questions'), q); }
-    } catch (e) { alert("Tekoäly on varattu, kokeile kohta uudelleen!"); }
+    } catch (e) { alert("Virhetieto: " + e.message); } }
   };
 
   const startQuiz = () => {
