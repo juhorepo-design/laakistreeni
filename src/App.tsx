@@ -36,7 +36,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 // --- GEMINI API APUFUNKTIO (Käyttää Netlifyn VITE-avainta) ---
-const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
+const callGeminiAPI = async (prompt: string, isJson = false, retries = 3) => {
   // @ts-ignore
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   
@@ -44,11 +44,13 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
     throw new Error("API-avainta ei löydy Netlifyn asetuksista.");
   }
 
-  // Käytetään Gemini 3 Flashia, jonka palvelin aiemmin hyväksyi
-  const model = 'gemini-3-flash'; 
-  const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
+  // Kokeillaan näitä malleja järjestyksessä
+  const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash-latest'];
+  let lastError = "";
 
-  for (let i = 0; i < retries; i++) {
+  for (const model of modelsToTry) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -56,13 +58,18 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
         body: JSON.stringify({
           contents: [{ 
             parts: [{ 
-              // Ohjataan tekoälyä suoraan tekstissä, jotta vältetään tekniset asetukset (generationConfig)
-              text: isJson ? `${prompt} Vastaa PELKÄSTÄÄN puhtaalla JSON-taulukolla ilman markdown-merkintöjä.` : prompt 
+              text: isJson ? `${prompt} Vastaa PELKÄSTÄÄN puhtaalla JSON-taulukolla.` : prompt 
             }] 
           }]
-          // Ei generationConfigia -> Ei Error 400 -virhettä!
+          // Ei generationConfigia, jotta vältetään Error 400
         })
       });
+
+      // Jos mallia ei löydy (404), kokeillaan listan seuraavaa
+      if (response.status === 404) {
+        lastError = `Mallia ${model} ei löytynyt.`;
+        continue; 
+      }
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -75,23 +82,24 @@ const callGeminiAPI = async (prompt: string, isJson = false, retries = 5) => {
       if (!text) throw new Error("Tekoäly palautti tyhjän vastauksen.");
 
       if (isJson) {
-        // Puhdistetaan vastaus varmuuden vuoksi
         const cleanedText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-        try {
-          return JSON.parse(cleanedText);
-        } catch (parseError) {
-          console.error("JSON-virhe:", cleanedText);
-          throw new Error("Vastaus ei ollut kelvollista JSON-muotoa.");
-        }
+        return JSON.parse(cleanedText);
       }
       return text;
+
     } catch (err: any) {
-      if (i === retries - 1) throw err;
-      // Odotetaan hetki ennen uutta yritystä (Exponential backoff)
-      const wait = Math.pow(2, i) * 1000;
-      await new Promise(r => setTimeout(r, wait));
+      // Jos virhe ei ollut 404, se voi olla ruuhka -> yritetään uudelleen
+      if (err.message.includes("404")) continue;
+      
+      if (retries > 0) {
+        await new Promise(r => setTimeout(r, 2000));
+        return callGeminiAPI(prompt, isJson, retries - 1);
+      }
+      throw err;
     }
   }
+  
+  throw new Error(`Mikään kokeilluista malleista ei toiminut. Viimeisin virhe: ${lastError}`);
 };
 
 // --- KOMPONENTIT ---
